@@ -9,6 +9,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # Third-party libraries
+import pdfplumber
 from supabase import create_client, Client
 from openai import OpenAI
 
@@ -119,20 +120,28 @@ class CanvasPipeline:
         return files
 
     def summarize_pdf(self, file_path):
-        """Encodes PDF as base64 and uses GPT-4o for summarization."""
+        """Extracts text from PDF using pdfplumber and uses GPT-4o for summarization."""
         try:
-            with open(file_path, "rb") as pdf_file:
-                pdf_base64 = base64.b64encode(pdf_file.read()).decode("utf-8")
+            text = ""
+            with pdfplumber.open(file_path) as pdf:
+                text = '\n'.join(page.extract_text() for page in pdf.pages if page.extract_text())
+            
+            if not text.strip():
+                return "Could not extract text from PDF (it might be scanned or empty)."
+
+            # Truncate text to the first 8000 characters as requested
+            truncated_text = text[:8000]
 
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {
+                        "role": "system",
+                        "content": "You are a helpful study assistant. Summarize the provided lecture material concisely but comprehensively. Focus on key definitions, core concepts, and potential exam topics."
+                    },
+                    {
                         "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Please provide a concise but comprehensive summary of this lecture material. Focus on key definitions, core concepts, and potential exam topics."},
-                            {"type": "input_file", "input_file": {"data": pdf_base64, "format": "pdf"}}
-                        ]
+                        "content": f"Please summarize the following course material:\n\n{truncated_text}"
                     }
                 ]
             )
