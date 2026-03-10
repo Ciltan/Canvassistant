@@ -33,8 +33,8 @@ DATA_DIR = BASE_DIR / "data"
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def telegram_send_pdf(file_path, caption):
-    """Send a PDF document with a summary caption to the user via Telegram."""
+def telegram_send_pdf(file_path, course_name):
+    """Send a PDF document with a short caption to the user via Telegram."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logger.warning("Telegram credentials missing. Could not send notification.")
         return
@@ -45,24 +45,35 @@ def telegram_send_pdf(file_path, caption):
             files = {'document': doc}
             data = {
                 'chat_id': TELEGRAM_CHAT_ID,
-                'caption': caption,
+                'caption': f"📚 *New Course Material*\nCourse: {course_name}\nFile: {file_path.name}",
                 'parse_mode': 'Markdown'
             }
             response = requests.post(url, data=data, files=files)
+            if response.status_code != 200:
+                logger.error(f"Telegram sendDocument failed: {response.text}")
             response.raise_for_status()
             logger.info(f"Successfully sent {file_path.name} to Telegram.")
     except Exception as e:
         logger.error(f"Failed to send Telegram document: {e}")
 
-def telegram_notify_error(message):
-    """Send a plain text error notification to Telegram."""
+def telegram_send_message(message):
+    """Send a text message to Telegram (up to 4096 chars)."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     try:
-        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"})
+        # Truncate if somehow exceeds 4096
+        safe_msg = message[:4090]
+        response = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": safe_msg, "parse_mode": "Markdown"})
+        if response.status_code != 200:
+            logger.error(f"Telegram sendMessage failed: {response.text}")
+        response.raise_for_status()
     except Exception as e:
-        logger.error(f"Failed to send Telegram error message: {e}")
+        logger.error(f"Failed to send Telegram message: {e}")
+
+def telegram_notify_error(message):
+    """Send a plain text error notification to Telegram."""
+    telegram_send_message(message)
 
 class CanvasPipeline:
     def __init__(self):
@@ -226,9 +237,11 @@ class CanvasPipeline:
                     # 2. Summarize using OpenAI (Map-Reduce V3)
                     summary = self.summarize_pdf(local_path)
                     
-                    # 3. Notify Telegram - Attach PDF + Summary
-                    caption = f"📚 *New Course Material (V3)*\n\n*Course:* {course_name}\n*File:* {filename}\n\n*Summary:*\n{summary}"
-                    telegram_send_pdf(local_path, caption)
+                    # 3. Notify Telegram - PDF first, then Summary
+                    telegram_send_pdf(local_path, course_name)
+                    
+                    summary_msg = f"📝 *Summary ({filename})*\n\n{summary}"
+                    telegram_send_message(summary_msg)
 
                     # 4. Clean up local file
                     local_path.unlink()
