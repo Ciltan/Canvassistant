@@ -9,9 +9,6 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # Third-party libraries
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
 from supabase import create_client, Client
 from openai import OpenAI
 
@@ -22,8 +19,6 @@ load_dotenv()
 CANVAS_BASE_URL = os.getenv("CANVAS_BASE_URL")
 CANVAS_TOKEN = os.getenv("CANVAS_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
-GDRIVE_CREDS_JSON = os.getenv("GDRIVE_CREDS_JSON")  # Entire JSON string
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -32,22 +27,41 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 # Local directories
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
-TEMP_CREDS_FILE = Path(__file__).parent / "temp_gdrive_creds.json"
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def telegram_notify(message):
-    """Send a message to the user via Telegram."""
+def telegram_send_pdf(file_path, caption):
+    """Send a PDF document with a summary caption to the user via Telegram."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logger.warning("Telegram credentials missing. Could not send notification.")
+        return
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
+    try:
+        with open(file_path, 'rb') as doc:
+            files = {'document': doc}
+            data = {
+                'chat_id': TELEGRAM_CHAT_ID,
+                'caption': caption,
+                'parse_mode': 'Markdown'
+            }
+            response = requests.post(url, data=data, files=files)
+            response.raise_for_status()
+            logger.info(f"Successfully sent {file_path.name} to Telegram.")
+    except Exception as e:
+        logger.error(f"Failed to send Telegram document: {e}")
+
+def telegram_notify_error(message):
+    """Send a plain text error notification to Telegram."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     try:
         requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"})
     except Exception as e:
-        logger.error(f"Failed to send Telegram message: {e}")
+        logger.error(f"Failed to send Telegram error message: {e}")
 
 class CanvasPipeline:
     def __init__(self):
@@ -58,29 +72,8 @@ class CanvasPipeline:
             raise ValueError("Supabase configuration missing.")
         self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
         
-        # Initialize Google Drive (Handle JSON string from GitHub Secret)
-        self.gdrive_service = self.init_gdrive()
-        
         # Initialize OpenAI
         self.openai_client = OpenAI(api_key=OPENAI_API_KEY)
-
-    def init_gdrive(self):
-        if not GDRIVE_CREDS_JSON:
-            raise ValueError("GDRIVE_CREDS_JSON secret is missing.")
-        
-        # Write JSON string to temp file for the Google client library to read
-        with open(TEMP_CREDS_FILE, 'w') as f:
-            f.write(GDRIVE_CREDS_JSON)
-        
-        try:
-            creds = service_account.Credentials.from_service_account_file(
-                str(TEMP_CREDS_FILE), scopes=['https://www.googleapis.com/auth/drive.file']
-            )
-            return build('drive', 'v3', credentials=creds)
-        finally:
-            # Delete temp file immediately for security
-            if TEMP_CREDS_FILE.exists():
-                TEMP_CREDS_FILE.unlink()
 
     def is_file_seen(self, file_id):
         """Check Supabase for existing file_id."""
@@ -125,30 +118,6 @@ class CanvasPipeline:
                         params = {}
         return files
 
-    def get_or_create_gdrive_folder(self, folder_name, parent_id):
-        query = f"name = '{folder_name}' and '{parent_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-        results = self.gdrive_service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
-        files = results.get('files', [])
-        if files:
-            return files[0]['id']
-        else:
-            file_metadata = {
-                'name': folder_name,
-                'mimeType': 'application/vnd.google-apps.folder',
-                'parents': [parent_id]
-            }
-            folder = self.gdrive_service.files().create(body=file_metadata, fields='id').execute()
-            return folder.get('id')
-
-    def upload_to_gdrive(self, file_path, folder_id):
-        file_metadata = {
-            'name': file_path.name,
-            'parents': [folder_id]
-        }
-        media = MediaFileUpload(str(file_path), resumable=True)
-        file = self.gdrive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
-        return file.get('webViewLink')
-
     def summarize_pdf(self, file_path):
         """Encodes PDF as base64 and uses GPT-4o for summarization."""
         try:
@@ -174,7 +143,7 @@ class CanvasPipeline:
 
     def process(self):
         try:
-            logger.info("Starting Daily Canvas Pipeline (GitHub Actions Edition)...")
+            logger.info("Starting Daily Canvas Pipeline (Telegram Edition)...")
             courses = self.get_active_courses()
             logger.info(f"Found {len(courses)} active courses.")
 
@@ -188,9 +157,6 @@ class CanvasPipeline:
                 
                 if not pdf_files:
                     continue
-
-                # Ensure course folder in GDrive
-                course_folder_id = self.get_or_create_gdrive_folder(course_name, GDRIVE_FOLDER_ID)
 
                 for file_info in pdf_files:
                     file_id = file_info.get("id")
@@ -215,28 +181,24 @@ class CanvasPipeline:
                             for chunk in r.iter_content(chunk_size=8192):
                                 f.write(chunk)
 
-                    # 2. Upload to GDrive
-                    gdrive_link = self.upload_to_gdrive(local_path, course_folder_id)
-                    logger.info(f"Uploaded to GDrive: {gdrive_link}")
-
-                    # 3. Summarize using OpenAI GPT-4o (Base64)
+                    # 2. Summarize using OpenAI GPT-4o (Base64)
                     summary = self.summarize_pdf(local_path)
                     
-                    # 4. Notify Telegram
-                    msg = f"📚 *New Course Material*\n\n*Course:* {course_name}\n*File:* {filename}\n\n*Summary:*\n{summary}\n\n🔗 [View on GDrive]({gdrive_link})"
-                    telegram_notify(msg)
+                    # 3. Notify Telegram - Attach PDF + Summary
+                    caption = f"📚 *New Course Material*\n\n*Course:* {course_name}\n*File:* {filename}\n\n*Summary:*\n{summary}"
+                    telegram_send_pdf(local_path, caption)
 
-                    # 5. Clean up local file
+                    # 4. Clean up local file
                     local_path.unlink()
                     
-                    # 6. Mark as seen in Supabase
+                    # 5. Mark as seen in Supabase
                     self.mark_file_seen(file_id)
 
             logger.info("Pipeline run complete.")
 
         except Exception as e:
             logger.exception("Pipeline execution failed.")
-            telegram_notify(f"❌ *Canvas Pipeline Error*\n\n```python\n{str(e)}\n```")
+            telegram_notify_error(f"❌ *Canvas Pipeline Error*\n\n```python\n{str(e)}\n```")
 
 if __name__ == "__main__":
     pipeline = CanvasPipeline()

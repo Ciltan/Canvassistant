@@ -28,8 +28,6 @@ jobs:
         CANVAS_BASE_URL: ${{ secrets.CANVAS_BASE_URL }}
         CANVAS_TOKEN: ${{ secrets.CANVAS_TOKEN }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
-        GDRIVE_CREDS_JSON: ${{ secrets.GDRIVE_CREDS_JSON }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
