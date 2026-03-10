@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.egg
+
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# ChromaDB
+backend/chroma_db/
+
+# Data files (too large for git)
+data/
+
+# Node
+node_modules/
+extension/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
