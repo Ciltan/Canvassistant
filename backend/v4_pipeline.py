@@ -289,7 +289,7 @@ Lecture material:
 
             # Save note
             safe_course = course_name.replace("/", "-")
-            note_dir = BASE_DIR / "notes" / safe_course
+            note_dir = BASE_DIR / "vault" / safe_course
             note_dir.mkdir(parents=True, exist_ok=True)
             note_path = note_dir / f"{stem}.md"
             note_path.write_text(note_content, encoding="utf-8")
