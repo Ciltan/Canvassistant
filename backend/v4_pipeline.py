@@ -235,34 +235,34 @@ class CanvasPipeline:
                 # 1. Check for New Announcements
                 announcements = self.get_announcements(course_id)
                 for ann in announcements:
-                    aid = ann.get("id")
-                    if not self.is_item_seen("seen_announcements", aid):
+                    aid = f"ann_{ann.get('id')}"
+                    if not self.is_item_seen("seenfiles", aid):
                         title = ann.get("title")
                         message = ann.get("message", "")[:500] + "..."
                         logger.info(f"[V{VERSION}] New announcement: {title}")
                         msg = f"📢 *New Announcement: {course_name}*\n\n*Title:* {title}\n\n{message}\n\n[Open in Canvas]({ann.get('html_url')})"
                         telegram_send_message(msg)
-                        self.mark_item_seen("seen_announcements", aid)
+                        self.mark_item_seen("seenfiles", aid)
 
                 # 2. Check for New Assignments
                 assignments = self.get_assignments(course_id)
                 for ass in assignments:
-                    asid = ass.get("id")
+                    asid = f"asgn_{ass.get('id')}"
                     # We check if created recently or if not seen
                     created_at = datetime.fromisoformat(ass.get("created_at").replace("Z", "+00:00"))
-                    if created_at > (datetime.now(timezone.utc) - timedelta(hours=48)) and not self.is_item_seen("seen_assignments", asid):
+                    if created_at > (datetime.now(timezone.utc) - timedelta(hours=48)) and not self.is_item_seen("seenfiles", asid):
                         name = ass.get("name")
                         due = ass.get("due_at")
                         logger.info(f"[V{VERSION}] New assignment: {name}")
                         msg = f"📝 *New Assignment: {course_name}*\n\n*Name:* {name}\n*Due:* {due}\n\n[View Assignment]({ass.get('html_url')})"
                         telegram_send_message(msg)
-                        self.mark_item_seen("seen_assignments", asid)
+                        self.mark_item_seen("seenfiles", asid)
 
                 # 3. Check for New Files (Original logic)
                 files = self.get_course_files(course_id)
                 for file_info in [f for f in files if f.get("filename", "").lower().endswith(".pdf")]:
                     fid = file_info.get("id")
-                    if not self.is_item_seen("seen_files", fid):
+                    if not self.is_item_seen("seenfiles", fid):
                         filename = file_info.get("filename")
                         logger.info(f"[V{VERSION}] New file: {filename}")
                         # (Download and summarize)
@@ -277,7 +277,7 @@ class CanvasPipeline:
                         telegram_send_message(f"📝 *Summary ({filename})*\n\n{summary}")
                         
                         local_path.unlink()
-                        self.mark_item_seen("seen_files", fid)
+                        self.mark_item_seen("seenfiles", fid)
 
             logger.info(f"--- Pipeline Finished Successfully ---")
         except Exception as e:
