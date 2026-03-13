@@ -67,7 +67,7 @@ def telegram_send_message(message):
     try:
         # Truncate if somehow exceeds 4096
         safe_msg = message[:4090]
-        response = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": safe_msg, "parse_mode": "Markdown"})
+        response = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": safe_msg, "parse_mode": "MarkdownV2"})
         if response.status_code != 200:
             logger.error(f"Telegram sendMessage failed: {response.text}")
         response.raise_for_status()
@@ -76,7 +76,13 @@ def telegram_send_message(message):
 
 def telegram_notify_error(message):
     """Send a plain text error notification to Telegram."""
-    telegram_send_message(message)
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    try:
+        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message[:4090]})
+    except Exception as e:
+        logger.error(f"Failed to send Telegram error notification: {e}")
 
 class CanvasPipeline:
     def __init__(self):
