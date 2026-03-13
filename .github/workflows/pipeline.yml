@@ -50,6 +50,6 @@ jobs:
       run: |
         git config user.name "Canvas Pipeline Bot"
         git config user.email "bot@canvassistant"
-        git add vault/
+        git add vault/ 2>/dev/null || true
         git diff --staged --quiet || git commit -m "notes: update from pipeline run"
         git push
