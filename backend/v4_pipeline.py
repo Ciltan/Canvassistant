@@ -74,6 +74,18 @@ def telegram_send_message(message):
     except Exception as e:
         logger.error(f"Failed to send Telegram message: {e}")
 
+def telegram_send_plain(message):
+    """Send a plain text message to Telegram (no Markdown parsing)."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    try:
+        response = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message[:4090]})
+        if response.status_code != 200:
+            logger.error(f"Telegram sendMessage failed: {response.text}")
+    except Exception as e:
+        logger.error(f"Failed to send Telegram message: {e}")
+
 def telegram_notify_error(message):
     """Send a plain text error notification to Telegram."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -289,7 +301,7 @@ class CanvasPipeline:
                         
                         summary = self.summarize_pdf(local_path)
                         telegram_send_pdf(local_path, course_name)
-                        telegram_send_message(f"📝 *Summary ({filename})*\n\n{summary}")
+                        telegram_send_plain(f"📝 Summary ({filename})\n\n{summary}")
                         
                         local_path.unlink()
                         self.mark_item_seen(fid)
