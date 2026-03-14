@@ -21,6 +21,9 @@ data/
 node_modules/
 extension/dist/
 
+# Obsidian settings (local-only, don't sync to GitHub)
+vault/.obsidian/
+
 # OS
 .DS_Store
 Thumbs.db

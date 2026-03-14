@@ -289,39 +289,70 @@ class CanvasPipeline:
             return f"Summarization failed: {e}"
 
     def generate_obsidian_note(self, all_text, filename, course_name):
-        """Generate a structured Obsidian Markdown note from PDF text and save it."""
+        """Generate a structured Obsidian Markdown note from PDF text and save it.
+
+        Notes are module-scoped: wikilinks only reference concepts within the same module.
+        Each note links back to MOD_INDEX.md for navigation.
+        """
         try:
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             stem = Path(filename).stem
+            module_code = course_name.split(" ")[0].upper()
 
-            prompt = f"""You are a study assistant. Convert the following lecture material into a structured Obsidian Markdown note.
+            # Read existing notes in this module to enable smart wikilinks
+            note_dir = BASE_DIR / "vault" / module_code
+            note_dir.mkdir(parents=True, exist_ok=True)
+            existing_notes = [f.stem for f in note_dir.glob("*.md") if f.stem != "MOD_INDEX"]
 
-Output ONLY the markdown content, starting with the YAML frontmatter. Use this exact structure:
+            existing_notes_str = ", ".join(existing_notes[:50]) if existing_notes else "(none yet)"
+
+            prompt = f"""You are a study assistant creating Obsidian vault notes for the module {module_code}.
+
+CRITICAL RULES:
+1. Output ONLY raw markdown starting with YAML frontmatter (no ```markdown fences)
+2. [[wikilinks]] must ONLY reference concepts within {module_code} — NEVER link to other modules
+3. If a concept matches an existing note, use its exact name as a wikilink
+4. Use LaTeX ($..$ for inline, $$...$$ for display) for all math
+5. Use Obsidian callout boxes (> [!note], > [!warning], > [!tip]) for important points
+6. Be comprehensive — include all definitions, formulas, code snippets, and examples from the source
+
+Existing notes in {module_code} you can link to: {existing_notes_str}
+
+Generate the note with this structure:
 
 ---
+module: {module_code}
 course: {course_name}
 date: {today}
-source_file: {filename}
-tags: [lecture-notes]
+source: {filename}
+tags: [{module_code.lower()}, lecture-notes, auto-generated]
+up: "[[MOD_INDEX]]"
 ---
 
+# {{title derived from content}}
+
+> [!info] Navigation
+> ↑ Back to [[MOD_INDEX]]
+
 ## Summary
-3-5 sentence overview of the material.
+3-5 sentence overview.
 
 ## Key Concepts
-- [[ConceptOne]] — brief definition
-- [[ConceptTwo]] — brief definition
-(use [[wikilinks]] for all key terms so Obsidian can link them)
+- [[ConceptName]] — definition (only link concepts within {module_code})
 
 ## Detailed Notes
-Structured notes with subheadings covering the main content.
+Comprehensive structured notes with subheadings. Include all formulas, code, tables, diagrams-as-text.
 
-## Exam Topics
-- Likely exam items as bullet points
+## Worked Examples
+Any examples or exercises from the material, with solutions.
+
+## Exam Relevance
+> [!warning] Exam Topics
+> Bullet points of likely exam items.
 
 ---
 Lecture material:
-{all_text[:15000]}"""
+{all_text[:20000]}"""
 
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o",
@@ -329,25 +360,34 @@ Lecture material:
             )
             note_content = response.choices[0].message.content
 
+            # Strip markdown code fences if GPT wraps them
+            if note_content.startswith("```"):
+                lines = note_content.split("\n")
+                note_content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
             # Save note
-            module_code = course_name.split(" ")[0].upper()
-            note_dir = BASE_DIR / "vault" / module_code
-            note_dir.mkdir(parents=True, exist_ok=True)
             note_path = note_dir / f"{stem}.md"
             note_path.write_text(note_content, encoding="utf-8")
             logger.info(f"[V{VERSION}] Obsidian note saved: {note_path}")
 
-            # Update course index
+            # Update MOD_INDEX.md (preferred) or index.md (fallback)
+            mod_index_path = note_dir / "MOD_INDEX.md"
             index_path = note_dir / "index.md"
-            existing_links = set()
-            if index_path.exists():
-                existing_links = set(index_path.read_text(encoding="utf-8").splitlines())
-            link = f"- [[{stem}]]"
-            if link not in existing_links:
-                with open(index_path, "a", encoding="utf-8") as f:
-                    if not index_path.stat().st_size:
-                        f.write(f"# {course_name}\n\n")
-                    f.write(link + "\n")
+            target_index = mod_index_path if mod_index_path.exists() else index_path
+
+            existing_content = ""
+            if target_index.exists():
+                existing_content = target_index.read_text(encoding="utf-8")
+
+            link_line = f"- [[{stem}]]"
+            if link_line not in existing_content:
+                with open(target_index, "a", encoding="utf-8") as f:
+                    if not existing_content:
+                        f.write(f"# {course_name}\n\n## Auto-Generated Notes\n\n")
+                    elif "## Auto-Generated Notes" not in existing_content:
+                        f.write(f"\n## Auto-Generated Notes\n\n")
+                    f.write(link_line + "\n")
+                logger.info(f"[V{VERSION}] Added {stem} to {target_index.name}")
 
         except Exception as e:
             logger.error(f"[V{VERSION}] Obsidian note generation failed: {e}")
