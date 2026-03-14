@@ -51,5 +51,9 @@ jobs:
         git config user.name "Canvas Pipeline Bot"
         git config user.email "bot@canvassistant"
         git add vault/ 2>/dev/null || true
-        git diff --staged --quiet || git commit -m "notes: update from pipeline run"
-        git push
+        if git diff --staged --quiet; then
+          echo "No new notes to commit."
+        else
+          git commit -m "notes: update from pipeline run"
+          git push origin HEAD:${{ github.ref }}
+        fi

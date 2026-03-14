@@ -207,6 +207,17 @@ class CanvasPipeline:
                 continue
         return upcoming
 
+    def get_assignments(self, course_id):
+        """Fetches all assignments for a single course."""
+        url = f"{CANVAS_BASE_URL}/api/v1/courses/{course_id}/assignments"
+        params = {"per_page": 50, "order_by": "due_at"}
+        try:
+            resp = requests.get(url, headers=self.headers, params=params)
+            resp.raise_for_status()
+            return resp.json()
+        except:
+            return []
+
     def send_daily_digest(self):
         """Sends a summary of assignments due in the next 7 days."""
         logger.info(f"[V{VERSION}] Preparing Daily Digest...")
